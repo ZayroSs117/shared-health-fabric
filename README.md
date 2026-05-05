@@ -15,11 +15,14 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
 - Offline players who missed a shared death have their inventory and ender chest
   cleared the next time they join.
 
-## Sodium and Iris
+## Compatibility
 
-This mod does not add client rendering code, renderer mixins, shaders, block
-models, or HUD overlays. It is server-side gameplay logic, so it is designed to
-coexist with Sodium and Iris in the client modpack.
+- Minecraft Java: 26.1.2
+- Fabric Loader: 0.19.2 or newer
+- Fabric API: required
+- Java: 25 or newer
+- Side: server-side mod. Install it on the dedicated server, or in the host
+  client's mods folder for a LAN/integrated world.
 
 ## Build
 
