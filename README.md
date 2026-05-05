@@ -20,6 +20,6 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
 - Minecraft Java: 26.1.2
 - Fabric Loader: 0.19.2 or newer
 - Fabric API: required
-- Java: 25 or newer
+- Java: 25 or newer. Java 21 is not enough for Minecraft 26.1.2.
 - Side: server-side mod. Install it on the dedicated server, or in the host
   client's mods folder for a LAN/integrated world.
