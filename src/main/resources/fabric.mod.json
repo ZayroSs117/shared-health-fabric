@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "shared_health_fabric",
+  "version": "${version}",
+  "name": "Shared Health Fabric",
+  "description": "Shared health, hunger, effects, and group death for Fabric servers.",
+  "authors": [
+    "Codex"
+  ],
+  "contact": {
+    "sources": "https://github.com/Shytoos/mc-sharedhealth"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.codex.sharedhealth.SharedHealthMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "${minecraft_version}",
+    "java": ">=25",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "sodium": "*",
+    "iris": "*"
+  }
+}
