@@ -23,13 +23,3 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
 - Java: 25 or newer
 - Side: server-side mod. Install it on the dedicated server, or in the host
   client's mods folder for a LAN/integrated world.
-
-## Build
-
-With Java 25 available, from `D:\Addons\shared-health-fabric`:
-
-```powershell
-.\gradlew.bat build
-```
-
-The jar is generated in `shared-health-fabric\build\libs`.
