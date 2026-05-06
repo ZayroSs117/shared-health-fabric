@@ -47,6 +47,7 @@ public enum SharedHealthController {
     private Path dataPath;
     private boolean syncing;
     private boolean massKillInProgress;
+    private boolean sharedDeathHandled;
     private int autosaveTicks;
 
     private final Map<Holder<MobEffect>, EffectSnapshot> sharedEffects = new HashMap<>();
@@ -112,11 +113,15 @@ public enum SharedHealthController {
                 .filter(player -> player.isDeadOrDying() || player.getHealth() <= 0.0F)
                 .findFirst();
         if (deadPlayer.isPresent()) {
-            handleSharedDeath(deadPlayer.get());
+            if (!sharedDeathHandled) {
+                sharedDeathHandled = true;
+                handleSharedDeath(deadPlayer.get());
+            }
             refreshSnapshots();
             autosave(currentServer);
             return;
         }
+        sharedDeathHandled = false;
 
         if (snapshots.isEmpty()) {
             initializeFromOnlinePlayers();
