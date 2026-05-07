@@ -14,6 +14,26 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
   drops, and ground items are cleared.
 - Offline players who missed a shared death have their inventory and ender chest
   cleared the next time they join.
+- Configurable natural mob spawn multiplier.
+
+## Configuration
+
+The server config file is `config/shared_health_fabric.json`.
+
+```json
+{
+  "mobSpawnMultiplier": 1.0
+}
+```
+
+`1.0` keeps vanilla spawn caps. `1.2` allows about 20% more natural mobs, `2.0`
+roughly doubles the cap, and `5.0` is the maximum.
+
+Operators can change it in game:
+
+```text
+/sharedhealth mobspawn 1.2
+```
 
 ## Compatibility
 

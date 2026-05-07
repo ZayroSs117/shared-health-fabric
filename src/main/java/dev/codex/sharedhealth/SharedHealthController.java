@@ -3,6 +3,7 @@ package dev.codex.sharedhealth;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
@@ -15,17 +16,20 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.Commands;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.permissions.Permissions;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.effect.MobEffect;
@@ -40,6 +44,9 @@ public enum SharedHealthController {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final double EPSILON = 1.0E-4D;
     private static final int AUTOSAVE_INTERVAL_TICKS = 20 * 60;
+    private static final double DEFAULT_MOB_SPAWN_MULTIPLIER = 1.0D;
+    private static final double MIN_MOB_SPAWN_MULTIPLIER = 1.0D;
+    private static final double MAX_MOB_SPAWN_MULTIPLIER = 5.0D;
 
     private final Map<UUID, PlayerSnapshot> snapshots = new HashMap<>();
     private SharedHealthData data = new SharedHealthData();
@@ -56,6 +63,35 @@ public enum SharedHealthController {
         ServerLifecycleEvents.SERVER_STARTED.register(this::onServerStarted);
         ServerLifecycleEvents.SERVER_STOPPING.register(this::onServerStopping);
         ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
+                Commands.literal("sharedhealth")
+                        .requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
+                        .then(Commands.literal("mobspawn")
+                                .executes(context -> {
+                                    context.getSource()
+                                            .sendSuccess(
+                                                    () -> Component.literal(
+                                                            "Shared Health mob spawn multiplier is "
+                                                                    + formatMultiplier(data.mobSpawnMultiplier)),
+                                                    false);
+                                    return 1;
+                                })
+                                .then(Commands.argument(
+                                                "multiplier",
+                                                DoubleArgumentType.doubleArg(
+                                                        MIN_MOB_SPAWN_MULTIPLIER, MAX_MOB_SPAWN_MULTIPLIER))
+                                        .executes(context -> {
+                                            double multiplier =
+                                                    DoubleArgumentType.getDouble(context, "multiplier");
+                                            setMobSpawnMultiplier(multiplier);
+                                            context.getSource()
+                                                    .sendSuccess(
+                                                            () -> Component.literal(
+                                                                    "Shared Health mob spawn multiplier set to "
+                                                                            + formatMultiplier(multiplier)),
+                                                            true);
+                                            return 1;
+                                        })))));
         ServerPlayConnectionEvents.JOIN.register((handler, sender, currentServer) -> onPlayerJoin(handler.player));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, currentServer) -> {
             snapshots.remove(handler.player.getUUID());
@@ -68,6 +104,37 @@ public enum SharedHealthController {
             markPlayerDeathSynced(newPlayer.getUUID(), data.sharedDeathCounter);
             snapshots.put(newPlayer.getUUID(), PlayerSnapshot.capture(newPlayer));
         });
+    }
+
+    public int scaleMobCap(int vanillaCap) {
+        if (vanillaCap <= 0) {
+            return vanillaCap;
+        }
+
+        double multiplier = data.mobSpawnMultiplier;
+        if (!Double.isFinite(multiplier)) {
+            multiplier = DEFAULT_MOB_SPAWN_MULTIPLIER;
+        }
+
+        double scaled = Math.ceil(vanillaCap * Math.max(MIN_MOB_SPAWN_MULTIPLIER, multiplier));
+        if (scaled >= Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+
+        return (int) scaled;
+    }
+
+    public void setMobSpawnMultiplier(double multiplier) {
+        double clamped = Math.max(MIN_MOB_SPAWN_MULTIPLIER, Math.min(MAX_MOB_SPAWN_MULTIPLIER, multiplier));
+        if (!Double.isFinite(multiplier)) {
+            clamped = DEFAULT_MOB_SPAWN_MULTIPLIER;
+        }
+
+        if (Math.abs(data.mobSpawnMultiplier - clamped) > EPSILON) {
+            data.mobSpawnMultiplier = clamped;
+            data.dirty = true;
+            saveData();
+        }
     }
 
     private void onServerStarted(MinecraftServer currentServer) {
@@ -605,6 +672,14 @@ public enum SharedHealthController {
         return String.format(Locale.US, "%.1f", displayed);
     }
 
+    private static String formatMultiplier(double multiplier) {
+        if (Math.abs(multiplier - Math.rint(multiplier)) <= EPSILON) {
+            return String.format(Locale.US, "%.0f", multiplier);
+        }
+
+        return String.format(Locale.US, "%.2f", multiplier);
+    }
+
     private boolean isNaturalRegenController(ServerPlayer player, List<ServerPlayer> players) {
         ServerPlayer controller = null;
         for (ServerPlayer candidate : players) {
@@ -1058,19 +1133,32 @@ public enum SharedHealthController {
         int sharedFoodLevel = 20;
         boolean hasSharedAbsorption;
         double sharedAbsorption;
+        double mobSpawnMultiplier = DEFAULT_MOB_SPAWN_MULTIPLIER;
         long sharedDeathCounter;
         Map<String, Long> playerDeathSync = new HashMap<>();
         transient boolean dirty;
 
         SharedHealthData sanitize() {
+            boolean sanitizedDirty = false;
             sharedHealth = Math.max(0.0D, sharedHealth);
             sharedFoodLevel = Math.max(0, Math.min(20, sharedFoodLevel));
             sharedAbsorption = Math.max(0.0D, sharedAbsorption);
+            if (!Double.isFinite(mobSpawnMultiplier)) {
+                mobSpawnMultiplier = DEFAULT_MOB_SPAWN_MULTIPLIER;
+                sanitizedDirty = true;
+            }
+            double clampedMobSpawnMultiplier =
+                    Math.max(MIN_MOB_SPAWN_MULTIPLIER, Math.min(MAX_MOB_SPAWN_MULTIPLIER, mobSpawnMultiplier));
+            if (Math.abs(clampedMobSpawnMultiplier - mobSpawnMultiplier) > EPSILON) {
+                sanitizedDirty = true;
+            }
+            mobSpawnMultiplier = clampedMobSpawnMultiplier;
             sharedDeathCounter = Math.max(0L, sharedDeathCounter);
             if (playerDeathSync == null) {
                 playerDeathSync = new HashMap<>();
+                sanitizedDirty = true;
             }
-            dirty = false;
+            dirty = sanitizedDirty;
             return this;
         }
 
@@ -1082,6 +1170,7 @@ public enum SharedHealthController {
             copy.sharedFoodLevel = sharedFoodLevel;
             copy.hasSharedAbsorption = hasSharedAbsorption;
             copy.sharedAbsorption = sharedAbsorption;
+            copy.mobSpawnMultiplier = mobSpawnMultiplier;
             copy.sharedDeathCounter = sharedDeathCounter;
             copy.playerDeathSync = new HashMap<>(playerDeathSync);
             return copy;
