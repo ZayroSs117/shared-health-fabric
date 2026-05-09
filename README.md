@@ -10,10 +10,11 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
 - Shared absorption hearts.
 - All active potion/status effects are shared across online players.
 - One shared death: if one player dies, every online player dies.
+- If one player clicks respawn after a shared death, every online dead player is
+  respawned too.
 - Shared death cleanup: online inventories, armor, offhand, ender chests, death
   drops, and ground items are cleared.
-- Offline players who missed a shared death have their inventory and ender chest
-  cleared the next time they join.
+- Offline players are not affected by shared death cleanup.
 - Configurable natural mob spawn multiplier.
 
 ## Configuration

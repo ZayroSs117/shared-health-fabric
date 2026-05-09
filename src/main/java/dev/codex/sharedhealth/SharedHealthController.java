@@ -34,6 +34,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -55,6 +56,7 @@ public enum SharedHealthController {
     private boolean syncing;
     private boolean massKillInProgress;
     private boolean sharedDeathHandled;
+    private boolean groupRespawnInProgress;
     private int autosaveTicks;
 
     private final Map<Holder<MobEffect>, EffectSnapshot> sharedEffects = new HashMap<>();
@@ -100,9 +102,7 @@ public enum SharedHealthController {
             }
         });
         ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
-            syncPlayerToSharedState(newPlayer);
-            markPlayerDeathSynced(newPlayer.getUUID(), data.sharedDeathCounter);
-            snapshots.put(newPlayer.getUUID(), PlayerSnapshot.capture(newPlayer));
+            onPlayerRespawn(newPlayer);
         });
     }
 
@@ -152,10 +152,21 @@ public enum SharedHealthController {
     }
 
     private void onPlayerJoin(ServerPlayer player) {
-        applyMissedSharedDeathStateIfNeeded(player);
         syncPlayerToSharedState(player);
-        markPlayerDeathSynced(player.getUUID(), data.sharedDeathCounter);
         snapshots.put(player.getUUID(), PlayerSnapshot.capture(player));
+    }
+
+    private void onPlayerRespawn(ServerPlayer player) {
+        syncPlayerToSharedState(player);
+        snapshots.put(player.getUUID(), PlayerSnapshot.capture(player));
+
+        if (!groupRespawnInProgress) {
+            respawnDeadOnlinePlayers(player);
+            if (!hasDeadOnlinePlayers()) {
+                sharedDeathHandled = false;
+            }
+            refreshSnapshots();
+        }
     }
 
     private void onServerTick(MinecraftServer currentServer) {
@@ -556,7 +567,6 @@ public enum SharedHealthController {
         wipeAllOnlineInventories();
         wipeAllOnlineEnderChests();
         clearAllGroundItems();
-        recordSharedDeathForOnlinePlayers();
         updateSharedHealth(0.0D);
         updateSharedAbsorption(0.0D);
         updateSharedHunger(20);
@@ -566,26 +576,42 @@ public enum SharedHealthController {
         saveData();
     }
 
-    private void applyMissedSharedDeathStateIfNeeded(ServerPlayer player) {
-        long syncedDeathCounter = getPlayerDeathSync(player.getUUID());
-        if (syncedDeathCounter >= data.sharedDeathCounter) {
-            return;
-        }
-
-        wipePlayerInventory(player);
-        player.getEnderChestInventory().clearContent();
-    }
-
-    private void recordSharedDeathForOnlinePlayers() {
-        data.sharedDeathCounter++;
-        data.dirty = true;
+    private void respawnDeadOnlinePlayers(ServerPlayer trigger) {
         if (server == null) {
             return;
         }
 
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            markPlayerDeathSynced(player.getUUID(), data.sharedDeathCounter);
+        groupRespawnInProgress = true;
+        try {
+            for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
+                if (player.getUUID().equals(trigger.getUUID())) {
+                    continue;
+                }
+                if (!player.isDeadOrDying() && player.getHealth() > 0.0F) {
+                    continue;
+                }
+
+                ServerPlayer respawned = server.getPlayerList().respawn(player, false, Entity.RemovalReason.KILLED);
+                syncPlayerToSharedState(respawned);
+                snapshots.put(respawned.getUUID(), PlayerSnapshot.capture(respawned));
+            }
+        } finally {
+            groupRespawnInProgress = false;
         }
+    }
+
+    private boolean hasDeadOnlinePlayers() {
+        if (server == null) {
+            return false;
+        }
+
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player.isDeadOrDying() || player.getHealth() <= 0.0F) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void wipePlayerInventory(ServerPlayer player) {
@@ -974,17 +1000,6 @@ public enum SharedHealthController {
         return Math.max(0.0D, player.getAttributeValue(Attributes.MAX_ABSORPTION));
     }
 
-    private long getPlayerDeathSync(UUID playerId) {
-        return data.playerDeathSync.getOrDefault(playerId.toString(), 0L);
-    }
-
-    private void markPlayerDeathSynced(UUID playerId, long deathCounter) {
-        Long previous = data.playerDeathSync.put(playerId.toString(), Math.max(0L, deathCounter));
-        if (previous == null || previous.longValue() != deathCounter) {
-            data.dirty = true;
-        }
-    }
-
     private void refreshSnapshots() {
         snapshots.clear();
         if (server == null) {
@@ -1134,8 +1149,6 @@ public enum SharedHealthController {
         boolean hasSharedAbsorption;
         double sharedAbsorption;
         double mobSpawnMultiplier = DEFAULT_MOB_SPAWN_MULTIPLIER;
-        long sharedDeathCounter;
-        Map<String, Long> playerDeathSync = new HashMap<>();
         transient boolean dirty;
 
         SharedHealthData sanitize() {
@@ -1153,11 +1166,6 @@ public enum SharedHealthController {
                 sanitizedDirty = true;
             }
             mobSpawnMultiplier = clampedMobSpawnMultiplier;
-            sharedDeathCounter = Math.max(0L, sharedDeathCounter);
-            if (playerDeathSync == null) {
-                playerDeathSync = new HashMap<>();
-                sanitizedDirty = true;
-            }
             dirty = sanitizedDirty;
             return this;
         }
@@ -1171,8 +1179,6 @@ public enum SharedHealthController {
             copy.hasSharedAbsorption = hasSharedAbsorption;
             copy.sharedAbsorption = sharedAbsorption;
             copy.mobSpawnMultiplier = mobSpawnMultiplier;
-            copy.sharedDeathCounter = sharedDeathCounter;
-            copy.playerDeathSync = new HashMap<>(playerDeathSync);
             return copy;
         }
     }
