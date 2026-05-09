@@ -3,6 +3,8 @@
   "package": "dev.codex.sharedhealth.mixin",
   "compatibilityLevel": "JAVA_25",
   "server": [
+    "AgeableMobMixin",
+    "AnimalMixin",
     "MobCategoryMixin"
   ],
   "injectors": {

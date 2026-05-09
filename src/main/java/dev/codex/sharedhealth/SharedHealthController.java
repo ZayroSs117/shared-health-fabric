@@ -48,6 +48,9 @@ public enum SharedHealthController {
     private static final double DEFAULT_MOB_SPAWN_MULTIPLIER = 1.0D;
     private static final double MIN_MOB_SPAWN_MULTIPLIER = 1.0D;
     private static final double MAX_MOB_SPAWN_MULTIPLIER = 5.0D;
+    private static final double DEFAULT_ANIMAL_TIME_MULTIPLIER = 1.0D;
+    private static final double MIN_ANIMAL_TIME_MULTIPLIER = 0.05D;
+    private static final double MAX_ANIMAL_TIME_MULTIPLIER = 1.0D;
 
     private final Map<UUID, PlayerSnapshot> snapshots = new HashMap<>();
     private SharedHealthData data = new SharedHealthData();
@@ -93,7 +96,63 @@ public enum SharedHealthController {
                                                                             + formatMultiplier(multiplier)),
                                                             true);
                                             return 1;
-                                        })))));
+                                        })))
+                        .then(Commands.literal("animal")
+                                .then(Commands.literal("breeding")
+                                        .executes(context -> {
+                                            context.getSource()
+                                                    .sendSuccess(
+                                                            () -> Component.literal(
+                                                                    "Shared Health animal breeding cooldown multiplier is "
+                                                                            + formatMultiplier(
+                                                                                    data.animalBreedingCooldownMultiplier)),
+                                                            false);
+                                            return 1;
+                                        })
+                                        .then(Commands.argument(
+                                                        "multiplier",
+                                                        DoubleArgumentType.doubleArg(
+                                                                MIN_ANIMAL_TIME_MULTIPLIER,
+                                                                MAX_ANIMAL_TIME_MULTIPLIER))
+                                                .executes(context -> {
+                                                    double multiplier =
+                                                            DoubleArgumentType.getDouble(context, "multiplier");
+                                                    setAnimalBreedingCooldownMultiplier(multiplier);
+                                                    context.getSource()
+                                                            .sendSuccess(
+                                                                    () -> Component.literal(
+                                                                            "Shared Health animal breeding cooldown multiplier set to "
+                                                                                    + formatMultiplier(multiplier)),
+                                                                    true);
+                                                    return 1;
+                                                })))
+                                .then(Commands.literal("growth")
+                                        .executes(context -> {
+                                            context.getSource()
+                                                    .sendSuccess(
+                                                            () -> Component.literal(
+                                                                    "Shared Health animal growth time multiplier is "
+                                                                            + formatMultiplier(data.animalGrowthTimeMultiplier)),
+                                                            false);
+                                            return 1;
+                                        })
+                                        .then(Commands.argument(
+                                                        "multiplier",
+                                                        DoubleArgumentType.doubleArg(
+                                                                MIN_ANIMAL_TIME_MULTIPLIER,
+                                                                MAX_ANIMAL_TIME_MULTIPLIER))
+                                                .executes(context -> {
+                                                    double multiplier =
+                                                            DoubleArgumentType.getDouble(context, "multiplier");
+                                                    setAnimalGrowthTimeMultiplier(multiplier);
+                                                    context.getSource()
+                                                            .sendSuccess(
+                                                                    () -> Component.literal(
+                                                                            "Shared Health animal growth time multiplier set to "
+                                                                                    + formatMultiplier(multiplier)),
+                                                                    true);
+                                                    return 1;
+                                                }))))));
         ServerPlayConnectionEvents.JOIN.register((handler, sender, currentServer) -> onPlayerJoin(handler.player));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, currentServer) -> {
             snapshots.remove(handler.player.getUUID());
@@ -135,6 +194,58 @@ public enum SharedHealthController {
             data.dirty = true;
             saveData();
         }
+    }
+
+    public int scaleAnimalBreedingCooldown(int vanillaCooldownTicks) {
+        return scalePositiveAnimalTime(vanillaCooldownTicks, data.animalBreedingCooldownMultiplier);
+    }
+
+    public int scaleAnimalGrowthAge(int vanillaBabyAgeTicks) {
+        if (vanillaBabyAgeTicks >= 0) {
+            return vanillaBabyAgeTicks;
+        }
+
+        return -scalePositiveAnimalTime((int) Math.min(Integer.MAX_VALUE, Math.abs((double) vanillaBabyAgeTicks)),
+                data.animalGrowthTimeMultiplier);
+    }
+
+    public void setAnimalBreedingCooldownMultiplier(double multiplier) {
+        double clamped = sanitizeAnimalTimeMultiplier(multiplier);
+        if (Math.abs(data.animalBreedingCooldownMultiplier - clamped) > EPSILON) {
+            data.animalBreedingCooldownMultiplier = clamped;
+            data.dirty = true;
+            saveData();
+        }
+    }
+
+    public void setAnimalGrowthTimeMultiplier(double multiplier) {
+        double clamped = sanitizeAnimalTimeMultiplier(multiplier);
+        if (Math.abs(data.animalGrowthTimeMultiplier - clamped) > EPSILON) {
+            data.animalGrowthTimeMultiplier = clamped;
+            data.dirty = true;
+            saveData();
+        }
+    }
+
+    private int scalePositiveAnimalTime(int vanillaTicks, double multiplier) {
+        if (vanillaTicks <= 0) {
+            return vanillaTicks;
+        }
+
+        double scaled = Math.ceil(vanillaTicks * sanitizeAnimalTimeMultiplier(multiplier));
+        if (scaled >= Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+
+        return Math.max(1, (int) scaled);
+    }
+
+    private double sanitizeAnimalTimeMultiplier(double multiplier) {
+        if (!Double.isFinite(multiplier)) {
+            return DEFAULT_ANIMAL_TIME_MULTIPLIER;
+        }
+
+        return Math.max(MIN_ANIMAL_TIME_MULTIPLIER, Math.min(MAX_ANIMAL_TIME_MULTIPLIER, multiplier));
     }
 
     private void onServerStarted(MinecraftServer currentServer) {
@@ -1149,6 +1260,8 @@ public enum SharedHealthController {
         boolean hasSharedAbsorption;
         double sharedAbsorption;
         double mobSpawnMultiplier = DEFAULT_MOB_SPAWN_MULTIPLIER;
+        double animalBreedingCooldownMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
+        double animalGrowthTimeMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
         transient boolean dirty;
 
         SharedHealthData sanitize() {
@@ -1166,6 +1279,26 @@ public enum SharedHealthController {
                 sanitizedDirty = true;
             }
             mobSpawnMultiplier = clampedMobSpawnMultiplier;
+            double clampedAnimalBreedingCooldownMultiplier =
+                    Math.max(MIN_ANIMAL_TIME_MULTIPLIER,
+                            Math.min(MAX_ANIMAL_TIME_MULTIPLIER, animalBreedingCooldownMultiplier));
+            if (!Double.isFinite(animalBreedingCooldownMultiplier)) {
+                clampedAnimalBreedingCooldownMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
+            }
+            if (Math.abs(clampedAnimalBreedingCooldownMultiplier - animalBreedingCooldownMultiplier) > EPSILON) {
+                sanitizedDirty = true;
+            }
+            animalBreedingCooldownMultiplier = clampedAnimalBreedingCooldownMultiplier;
+            double clampedAnimalGrowthTimeMultiplier =
+                    Math.max(MIN_ANIMAL_TIME_MULTIPLIER,
+                            Math.min(MAX_ANIMAL_TIME_MULTIPLIER, animalGrowthTimeMultiplier));
+            if (!Double.isFinite(animalGrowthTimeMultiplier)) {
+                clampedAnimalGrowthTimeMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
+            }
+            if (Math.abs(clampedAnimalGrowthTimeMultiplier - animalGrowthTimeMultiplier) > EPSILON) {
+                sanitizedDirty = true;
+            }
+            animalGrowthTimeMultiplier = clampedAnimalGrowthTimeMultiplier;
             dirty = sanitizedDirty;
             return this;
         }
@@ -1179,6 +1312,8 @@ public enum SharedHealthController {
             copy.hasSharedAbsorption = hasSharedAbsorption;
             copy.sharedAbsorption = sharedAbsorption;
             copy.mobSpawnMultiplier = mobSpawnMultiplier;
+            copy.animalBreedingCooldownMultiplier = animalBreedingCooldownMultiplier;
+            copy.animalGrowthTimeMultiplier = animalGrowthTimeMultiplier;
             return copy;
         }
     }

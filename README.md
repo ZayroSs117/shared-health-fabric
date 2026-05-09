@@ -16,6 +16,7 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
   drops, and ground items are cleared.
 - Offline players are not affected by shared death cleanup.
 - Configurable natural mob spawn multiplier.
+- Configurable animal breeding cooldown and baby growth time.
 
 ## Configuration
 
@@ -23,17 +24,24 @@ The server config file is `config/shared_health_fabric.json`.
 
 ```json
 {
-  "mobSpawnMultiplier": 1.0
+  "mobSpawnMultiplier": 1.0,
+  "animalBreedingCooldownMultiplier": 1.0,
+  "animalGrowthTimeMultiplier": 1.0
 }
 ```
 
 `1.0` keeps vanilla spawn caps. `1.2` allows about 20% more natural mobs, `2.0`
 roughly doubles the cap, and `5.0` is the maximum.
 
+Animal time multipliers use `1.0` for vanilla time. Lower values are faster:
+`0.5` halves the cooldown/growth time, and `0.05` is the minimum.
+
 Operators can change it in game:
 
 ```text
 /sharedhealth mobspawn 1.2
+/sharedhealth animal breeding 0.5
+/sharedhealth animal growth 0.5
 ```
 
 ## Compatibility
