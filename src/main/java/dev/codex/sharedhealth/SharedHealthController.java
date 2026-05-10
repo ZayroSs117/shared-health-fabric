@@ -34,7 +34,6 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -60,7 +59,6 @@ public enum SharedHealthController {
     private boolean syncing;
     private boolean massKillInProgress;
     private boolean sharedDeathHandled;
-    private boolean groupRespawnInProgress;
     private int autosaveTicks;
 
     private final Map<Holder<MobEffect>, EffectSnapshot> sharedEffects = new HashMap<>();
@@ -321,13 +319,10 @@ public enum SharedHealthController {
         syncPlayerToSharedState(player);
         snapshots.put(player.getUUID(), PlayerSnapshot.capture(player));
 
-        if (!groupRespawnInProgress) {
-            respawnDeadOnlinePlayers(player);
-            if (!hasDeadOnlinePlayers()) {
-                sharedDeathHandled = false;
-            }
-            refreshSnapshots();
+        if (!hasDeadOnlinePlayers()) {
+            sharedDeathHandled = false;
         }
+        refreshSnapshots();
     }
 
     private void onServerTick(MinecraftServer currentServer) {
@@ -735,30 +730,6 @@ public enum SharedHealthController {
         killAllPlayers();
         clearAllGroundItems();
         saveData();
-    }
-
-    private void respawnDeadOnlinePlayers(ServerPlayer trigger) {
-        if (server == null) {
-            return;
-        }
-
-        groupRespawnInProgress = true;
-        try {
-            for (ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
-                if (player.getUUID().equals(trigger.getUUID())) {
-                    continue;
-                }
-                if (!player.isDeadOrDying() && player.getHealth() > 0.0F) {
-                    continue;
-                }
-
-                ServerPlayer respawned = server.getPlayerList().respawn(player, false, Entity.RemovalReason.KILLED);
-                syncPlayerToSharedState(respawned);
-                snapshots.put(respawned.getUUID(), PlayerSnapshot.capture(respawned));
-            }
-        } finally {
-            groupRespawnInProgress = false;
-        }
     }
 
     private boolean hasDeadOnlinePlayers() {
