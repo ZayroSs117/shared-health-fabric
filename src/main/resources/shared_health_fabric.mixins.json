@@ -5,6 +5,7 @@
   "server": [
     "AgeableMobMixin",
     "AnimalMixin",
+    "ChickenMixin",
     "MobCategoryMixin"
   ],
   "injectors": {

@@ -51,6 +51,7 @@ public enum SharedHealthController {
     private static final double DEFAULT_ANIMAL_TIME_MULTIPLIER = 1.0D;
     private static final double MIN_ANIMAL_TIME_MULTIPLIER = 0.05D;
     private static final double MAX_ANIMAL_TIME_MULTIPLIER = 1.0D;
+    private static final int VANILLA_CHICKEN_EGG_MAX_TICKS = 20 * 60 * 10;
 
     private final Map<UUID, PlayerSnapshot> snapshots = new HashMap<>();
     private SharedHealthData data = new SharedHealthData();
@@ -152,6 +153,34 @@ public enum SharedHealthController {
                                                                                     + formatMultiplier(multiplier)),
                                                                     true);
                                                     return 1;
+                                                })))
+                                .then(Commands.literal("eggs")
+                                        .executes(context -> {
+                                            context.getSource()
+                                                    .sendSuccess(
+                                                            () -> Component.literal(
+                                                                    "Shared Health chicken egg lay time multiplier is "
+                                                                            + formatMultiplier(
+                                                                                    data.chickenEggLayTimeMultiplier)),
+                                                            false);
+                                            return 1;
+                                        })
+                                        .then(Commands.argument(
+                                                        "multiplier",
+                                                        DoubleArgumentType.doubleArg(
+                                                                MIN_ANIMAL_TIME_MULTIPLIER,
+                                                                MAX_ANIMAL_TIME_MULTIPLIER))
+                                                .executes(context -> {
+                                                    double multiplier =
+                                                            DoubleArgumentType.getDouble(context, "multiplier");
+                                                    setChickenEggLayTimeMultiplier(multiplier);
+                                                    context.getSource()
+                                                            .sendSuccess(
+                                                                    () -> Component.literal(
+                                                                            "Shared Health chicken egg lay time multiplier set to "
+                                                                                    + formatMultiplier(multiplier)),
+                                                                    true);
+                                                    return 1;
                                                 }))))));
         ServerPlayConnectionEvents.JOIN.register((handler, sender, currentServer) -> onPlayerJoin(handler.player));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, currentServer) -> {
@@ -209,6 +238,18 @@ public enum SharedHealthController {
                 data.animalGrowthTimeMultiplier);
     }
 
+    public int scaleChickenEggLayTime(int vanillaTicks) {
+        return scalePositiveAnimalTime(vanillaTicks, data.chickenEggLayTimeMultiplier);
+    }
+
+    public int capChickenEggLayTime(int currentTicks) {
+        if (currentTicks <= 0) {
+            return currentTicks;
+        }
+
+        return Math.min(currentTicks, scaleChickenEggLayTime(VANILLA_CHICKEN_EGG_MAX_TICKS));
+    }
+
     public void setAnimalBreedingCooldownMultiplier(double multiplier) {
         double clamped = sanitizeAnimalTimeMultiplier(multiplier);
         if (Math.abs(data.animalBreedingCooldownMultiplier - clamped) > EPSILON) {
@@ -222,6 +263,15 @@ public enum SharedHealthController {
         double clamped = sanitizeAnimalTimeMultiplier(multiplier);
         if (Math.abs(data.animalGrowthTimeMultiplier - clamped) > EPSILON) {
             data.animalGrowthTimeMultiplier = clamped;
+            data.dirty = true;
+            saveData();
+        }
+    }
+
+    public void setChickenEggLayTimeMultiplier(double multiplier) {
+        double clamped = sanitizeAnimalTimeMultiplier(multiplier);
+        if (Math.abs(data.chickenEggLayTimeMultiplier - clamped) > EPSILON) {
+            data.chickenEggLayTimeMultiplier = clamped;
             data.dirty = true;
             saveData();
         }
@@ -1262,6 +1312,7 @@ public enum SharedHealthController {
         double mobSpawnMultiplier = DEFAULT_MOB_SPAWN_MULTIPLIER;
         double animalBreedingCooldownMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
         double animalGrowthTimeMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
+        double chickenEggLayTimeMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
         transient boolean dirty;
 
         SharedHealthData sanitize() {
@@ -1299,6 +1350,16 @@ public enum SharedHealthController {
                 sanitizedDirty = true;
             }
             animalGrowthTimeMultiplier = clampedAnimalGrowthTimeMultiplier;
+            double clampedChickenEggLayTimeMultiplier =
+                    Math.max(MIN_ANIMAL_TIME_MULTIPLIER,
+                            Math.min(MAX_ANIMAL_TIME_MULTIPLIER, chickenEggLayTimeMultiplier));
+            if (!Double.isFinite(chickenEggLayTimeMultiplier)) {
+                clampedChickenEggLayTimeMultiplier = DEFAULT_ANIMAL_TIME_MULTIPLIER;
+            }
+            if (Math.abs(clampedChickenEggLayTimeMultiplier - chickenEggLayTimeMultiplier) > EPSILON) {
+                sanitizedDirty = true;
+            }
+            chickenEggLayTimeMultiplier = clampedChickenEggLayTimeMultiplier;
             dirty = sanitizedDirty;
             return this;
         }
@@ -1314,6 +1375,7 @@ public enum SharedHealthController {
             copy.mobSpawnMultiplier = mobSpawnMultiplier;
             copy.animalBreedingCooldownMultiplier = animalBreedingCooldownMultiplier;
             copy.animalGrowthTimeMultiplier = animalGrowthTimeMultiplier;
+            copy.chickenEggLayTimeMultiplier = chickenEggLayTimeMultiplier;
             return copy;
         }
     }

@@ -17,6 +17,7 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
 - Offline players are not affected by shared death cleanup.
 - Configurable natural mob spawn multiplier.
 - Configurable animal breeding cooldown and baby growth time.
+- Configurable chicken egg lay time.
 
 ## Configuration
 
@@ -26,7 +27,8 @@ The server config file is `config/shared_health_fabric.json`.
 {
   "mobSpawnMultiplier": 1.0,
   "animalBreedingCooldownMultiplier": 1.0,
-  "animalGrowthTimeMultiplier": 1.0
+  "animalGrowthTimeMultiplier": 1.0,
+  "chickenEggLayTimeMultiplier": 1.0
 }
 ```
 
@@ -35,6 +37,8 @@ roughly doubles the cap, and `5.0` is the maximum.
 
 Animal time multipliers use `1.0` for vanilla time. Lower values are faster:
 `0.5` halves the cooldown/growth time, and `0.05` is the minimum.
+Chicken egg lay time also uses this range. Vanilla is about 5 to 10 minutes;
+`0.5` makes it about 2.5 to 5 minutes.
 
 Operators can change it in game:
 
@@ -42,6 +46,7 @@ Operators can change it in game:
 /sharedhealth mobspawn 1.2
 /sharedhealth animal breeding 0.5
 /sharedhealth animal growth 0.5
+/sharedhealth animal eggs 0.5
 ```
 
 ## Compatibility
