@@ -11,10 +11,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
@@ -58,7 +60,7 @@ public enum SharedHealthController {
     private Path dataPath;
     private boolean syncing;
     private boolean massKillInProgress;
-    private boolean sharedDeathHandled;
+    private final Set<UUID> handledSharedDeathPlayers = new HashSet<>();
     private int autosaveTicks;
 
     private final Map<Holder<MobEffect>, EffectSnapshot> sharedEffects = new HashMap<>();
@@ -183,6 +185,7 @@ public enum SharedHealthController {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, currentServer) -> onPlayerJoin(handler.player));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, currentServer) -> {
             snapshots.remove(handler.player.getUUID());
+            handledSharedDeathPlayers.remove(handler.player.getUUID());
             if (currentServer.getPlayerList().getPlayerCount() <= 1) {
                 saveData();
             }
@@ -316,11 +319,12 @@ public enum SharedHealthController {
     }
 
     private void onPlayerRespawn(ServerPlayer player) {
+        handledSharedDeathPlayers.remove(player.getUUID());
         syncPlayerToSharedState(player);
         snapshots.put(player.getUUID(), PlayerSnapshot.capture(player));
 
         if (!hasDeadOnlinePlayers()) {
-            sharedDeathHandled = false;
+            handledSharedDeathPlayers.clear();
         }
         refreshSnapshots();
     }
@@ -333,6 +337,7 @@ public enum SharedHealthController {
         List<ServerPlayer> players = currentServer.getPlayerList().getPlayers();
         if (players.isEmpty()) {
             ensureDefaults();
+            handledSharedDeathPlayers.clear();
             autosave(currentServer);
             return;
         }
@@ -343,19 +348,30 @@ public enum SharedHealthController {
             return;
         }
 
-        Optional<ServerPlayer> deadPlayer = players.stream()
-                .filter(player -> player.isDeadOrDying() || player.getHealth() <= 0.0F)
+        Optional<ServerPlayer> unhandledDeadPlayer = players.stream()
+                .filter(this::isDeadPlayer)
+                .filter(player -> !handledSharedDeathPlayers.contains(player.getUUID()))
                 .findFirst();
-        if (deadPlayer.isPresent()) {
-            if (!sharedDeathHandled) {
-                sharedDeathHandled = true;
-                handleSharedDeath(deadPlayer.get());
+        if (unhandledDeadPlayer.isPresent()) {
+            handleSharedDeath(unhandledDeadPlayer.get());
+            markHandledDeadPlayers();
+            refreshSnapshots();
+            autosave(currentServer);
+            return;
+        }
+
+        List<ServerPlayer> alivePlayers = players.stream().filter(this::isAlivePlayer).toList();
+        if (alivePlayers.size() < players.size()) {
+            if (snapshots.isEmpty()) {
+                initializeFromOnlinePlayers();
+            } else if (!alivePlayers.isEmpty()) {
+                detectAndApplySharedChanges(alivePlayers);
             }
             refreshSnapshots();
             autosave(currentServer);
             return;
         }
-        sharedDeathHandled = false;
+        handledSharedDeathPlayers.clear();
 
         if (snapshots.isEmpty()) {
             initializeFromOnlinePlayers();
@@ -738,12 +754,33 @@ public enum SharedHealthController {
         }
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            if (player.isDeadOrDying() || player.getHealth() <= 0.0F) {
+            if (isDeadPlayer(player)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private boolean isAlivePlayer(ServerPlayer player) {
+        return !isDeadPlayer(player);
+    }
+
+    private boolean isDeadPlayer(ServerPlayer player) {
+        return player.isDeadOrDying() || player.getHealth() <= 0.0F;
+    }
+
+    private void markHandledDeadPlayers() {
+        handledSharedDeathPlayers.clear();
+        if (server == null) {
+            return;
+        }
+
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (isDeadPlayer(player)) {
+                handledSharedDeathPlayers.add(player.getUUID());
+            }
+        }
     }
 
     private void wipePlayerInventory(ServerPlayer player) {
