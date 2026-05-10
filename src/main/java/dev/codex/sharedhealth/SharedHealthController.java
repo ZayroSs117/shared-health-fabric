@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
@@ -25,6 +28,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.Component;
@@ -39,6 +43,7 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.level.ChunkPos;
 
 public enum SharedHealthController {
     INSTANCE;
@@ -181,7 +186,20 @@ public enum SharedHealthController {
                                                                                     + formatMultiplier(multiplier)),
                                                                     true);
                                                     return 1;
-                                                }))))));
+                                                }))))
+                        .then(Commands.literal("chunkload")
+                                .then(Commands.literal("status")
+                                        .executes(context -> sendCurrentChunkLoadStatus(context.getSource())))
+                                .then(Commands.literal("add")
+                                        .executes(context -> setCurrentChunkForceLoaded(context.getSource(), true)))
+                                .then(Commands.literal("on")
+                                        .executes(context -> setCurrentChunkForceLoaded(context.getSource(), true)))
+                                .then(Commands.literal("remove")
+                                        .executes(context -> setCurrentChunkForceLoaded(context.getSource(), false)))
+                                .then(Commands.literal("off")
+                                        .executes(context -> setCurrentChunkForceLoaded(context.getSource(), false)))
+                                .then(Commands.literal("list")
+                                        .executes(context -> listForceLoadedChunks(context.getSource()))))));
         ServerPlayConnectionEvents.JOIN.register((handler, sender, currentServer) -> onPlayerJoin(handler.player));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, currentServer) -> {
             snapshots.remove(handler.player.getUUID());
@@ -193,6 +211,99 @@ public enum SharedHealthController {
         ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
             onPlayerRespawn(newPlayer);
         });
+    }
+
+    private int sendCurrentChunkLoadStatus(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = source.getLevel();
+        ChunkPos chunkPos = player.chunkPosition();
+        boolean forceLoaded = isForceLoaded(level, chunkPos);
+        String message = "Chunk " + formatChunkPosition(chunkPos) + " in " + formatDimension(level)
+                + (forceLoaded ? " is force-loaded." : " is not force-loaded.");
+
+        source.sendSuccess(() -> Component.literal(message), false);
+        return forceLoaded ? 1 : 0;
+    }
+
+    private int setCurrentChunkForceLoaded(CommandSourceStack source, boolean forceLoaded) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ServerLevel level = source.getLevel();
+        ChunkPos chunkPos = player.chunkPosition();
+        boolean wasForceLoaded = isForceLoaded(level, chunkPos);
+
+        level.setChunkForced(chunkPos.x(), chunkPos.z(), forceLoaded);
+        boolean isForceLoaded = isForceLoaded(level, chunkPos);
+
+        String message;
+        if (isForceLoaded != forceLoaded) {
+            message = "Could not update chunk " + formatChunkPosition(chunkPos) + " in " + formatDimension(level) + ".";
+            source.sendFailure(Component.literal(message));
+            return 0;
+        }
+
+        if (forceLoaded) {
+            message = wasForceLoaded
+                    ? "Chunk " + formatChunkPosition(chunkPos) + " in " + formatDimension(level)
+                            + " was already force-loaded."
+                    : "Chunk " + formatChunkPosition(chunkPos) + " in " + formatDimension(level)
+                            + " is now force-loaded.";
+        } else {
+            message = wasForceLoaded
+                    ? "Chunk " + formatChunkPosition(chunkPos) + " in " + formatDimension(level)
+                            + " is no longer force-loaded."
+                    : "Chunk " + formatChunkPosition(chunkPos) + " in " + formatDimension(level)
+                            + " was not force-loaded.";
+        }
+
+        source.sendSuccess(() -> Component.literal(message), true);
+        return 1;
+    }
+
+    private int listForceLoadedChunks(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        LongSet forcedChunks = level.getForceLoadedChunks();
+        int size = forcedChunks.size();
+        if (size == 0) {
+            source.sendSuccess(
+                    () -> Component.literal("No force-loaded chunks in " + formatDimension(level) + "."),
+                    false);
+            return 0;
+        }
+
+        StringBuilder builder = new StringBuilder("Force-loaded chunks in ")
+                .append(formatDimension(level))
+                .append(" (")
+                .append(size)
+                .append("): ");
+        LongIterator iterator = forcedChunks.iterator();
+        int shown = 0;
+        int limit = 20;
+        while (iterator.hasNext() && shown < limit) {
+            if (shown > 0) {
+                builder.append(", ");
+            }
+            builder.append(formatChunkPosition(ChunkPos.unpack(iterator.nextLong())));
+            shown++;
+        }
+        if (size > limit) {
+            builder.append(", ... +").append(size - limit).append(" more");
+        }
+
+        String message = builder.toString();
+        source.sendSuccess(() -> Component.literal(message), false);
+        return size;
+    }
+
+    private boolean isForceLoaded(ServerLevel level, ChunkPos chunkPos) {
+        return level.getForceLoadedChunks().contains(chunkPos.pack());
+    }
+
+    private String formatChunkPosition(ChunkPos chunkPos) {
+        return "[" + chunkPos.x() + ", " + chunkPos.z() + "]";
+    }
+
+    private String formatDimension(ServerLevel level) {
+        return level.dimension().identifier().toString();
     }
 
     public int scaleMobCap(int vanillaCap) {

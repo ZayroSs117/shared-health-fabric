@@ -16,6 +16,7 @@ from Shytoos' Paper plugin for Fabric servers and integrated worlds.
 - Configurable natural mob spawn multiplier.
 - Configurable animal breeding cooldown and baby growth time.
 - Configurable chicken egg lay time.
+- Server-side force-loaded chunk commands.
 
 ## Configuration
 
@@ -45,7 +46,15 @@ Operators can change it in game:
 /sharedhealth animal breeding 0.5
 /sharedhealth animal growth 0.5
 /sharedhealth animal eggs 0.5
+/sharedhealth chunkload status
+/sharedhealth chunkload add
+/sharedhealth chunkload remove
+/sharedhealth chunkload list
 ```
+
+`/sharedhealth chunkload add` force-loads the chunk where the operator is
+standing. `/sharedhealth chunkload list` shows the force-loaded chunks in the
+operator's current dimension.
 
 ## Compatibility
 
